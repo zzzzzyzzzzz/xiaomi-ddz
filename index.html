@@ -1,0 +1,851 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="第一人称 3D 斗地主：你和两只低多边形小猫煤球、小咪打牌。">
+<title>小咪打牌中</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Silkscreen:wght@400&family=ZCOOL+KuaiLe&display=swap">
+<style>
+/* Layout: one full-bleed 3D room seen from your chair; HUD floats at the edges, your hand of cards along the bottom. */
+:root{
+  color-scheme: dark;
+  --night:#170f1e;      /* room shadow */
+  --plum:#2b1933;       /* panels */
+  --plum-hi:#3d2647;
+  --paper:#f5ecd8;      /* card stock */
+  --ink:#24161f;        /* black suits, text on paper */
+  --suit-red:#c9334b;   /* hearts / diamonds */
+  --neon:#ff88c9;       /* sign + accent */
+  --gold:#f6c453;       /* landlord */
+  --text:#f8eff9;
+  --muted:#bba9c8;
+  --felt:#2e6b59;
+  --font-pixel:"Silkscreen", ui-monospace, "Courier New", monospace;
+  --font-rank:"Pixelify Sans", ui-monospace, "Courier New", monospace;
+  --font-cn:"ZCOOL KuaiLe", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --cw: clamp(38px, 4.9vw, 64px);
+  --ch: calc(var(--cw) * 1.42);
+}
+html,body{height:100%}
+body{background:var(--night);color:var(--text);font-family:var(--font-cn);overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#scene{position:fixed;inset:0;width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges}
+#ui{position:fixed;inset:0;pointer-events:none;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:max(10px, env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-bottom, 0px));display:flex;flex-direction:column;justify-content:space-between}
+#ui button, #hand, #start, #result{pointer-events:auto}
+
+/* top bar */
+#hud{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;justify-content:space-between}
+.panel{background:color-mix(in srgb, var(--plum) 88%, transparent);border:2px solid var(--plum-hi);box-shadow:0 0 0 2px var(--night), 4px 4px 0 var(--night);padding:6px 10px}
+#scores{display:grid;grid-template-columns:auto auto;column-gap:12px;row-gap:2px;font-size:14px}
+#scores .v{font-family:var(--font-pixel);text-align:right;font-variant-numeric:tabular-nums}
+#round{display:flex;gap:12px;align-items:center;font-size:14px}
+#round .num{font-family:var(--font-pixel);color:var(--gold);font-size:16px}
+#bottomCards{display:flex;gap:4px;align-items:center}
+#bottomCards .lbl{font-size:13px;color:var(--muted);margin-right:4px}
+
+/* cards */
+.card{position:relative;width:var(--cw);height:calc(var(--cw) * 1.42);background:var(--paper);color:var(--ink);border:2px solid var(--ink);box-shadow:inset -2px -2px 0 #d8cbb0, 2px 2px 0 rgba(0,0,0,.35);flex:none;font-family:var(--font-pixel);transition:transform .12s steps(3)}
+.card.red{color:var(--suit-red)}
+.card .r{position:absolute;left:3px;top:2px;font-family:var(--font-rank);font-size:calc(var(--cw)*0.36);line-height:1;font-weight:700;letter-spacing:-1px}
+.card .s{position:absolute;left:4px;top:calc(var(--cw)*0.37);font-size:calc(var(--cw)*0.26);line-height:1;font-family:system-ui,sans-serif}
+.card .big{position:absolute;right:4px;bottom:2px;font-size:calc(var(--cw)*0.52);line-height:1;font-family:system-ui,sans-serif}
+.card.joker .r{writing-mode:vertical-rl;font-family:var(--font-pixel);font-size:calc(var(--cw)*0.2);letter-spacing:0;left:3px;top:3px}
+.card.joker .big{font-family:var(--font-cn);font-size:calc(var(--cw)*0.36)}
+.card.mini{--cw:30px;margin-left:-14px}
+.card.mini:first-child{margin-left:0}
+.card.tiny{--cw:24px}
+
+/* table anchors */
+.anchor{position:fixed;left:0;top:0;transform:translate(-50%,-50%);pointer-events:none;will-change:transform}
+.played{display:flex;align-items:center;justify-content:center}
+.played .pass{font-size:18px;color:var(--muted);background:rgba(23,15,30,.7);padding:2px 10px;border:2px solid var(--plum-hi)}
+.played .type{position:absolute;top:-20px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:13px;color:var(--gold);text-shadow:2px 2px 0 var(--night)}
+.tag{display:flex;flex-direction:column;align-items:center;gap:2px;text-shadow:2px 2px 0 var(--night)}
+.tag .name{font-size:17px}
+.tag .meta{display:flex;gap:6px;align-items:center;font-size:13px}
+.tag .count{font-family:var(--font-pixel);background:var(--plum);border:2px solid var(--plum-hi);padding:0 6px;font-variant-numeric:tabular-nums}
+.tag .count.low{background:var(--suit-red);border-color:#ff9aa9}
+.role{font-size:12px;padding:0 5px;border:2px solid currentColor}
+.role.lord{color:var(--gold)}
+.role.farm{color:#9fe0c3}
+.tag.active .name{color:var(--neon)}
+.tag.active .name::after{content:" ◀";font-family:var(--font-pixel);font-size:12px}
+.bubble{background:var(--paper);color:var(--ink);font-size:16px;padding:4px 10px;border:2px solid var(--ink);box-shadow:3px 3px 0 var(--night);white-space:nowrap;position:relative;transition:opacity .2s}
+.bubble::after{content:"";position:absolute;left:50%;bottom:-8px;margin-left:-6px;border:6px solid transparent;border-top-color:var(--ink);border-bottom:0}
+.bubble[data-off="1"]{opacity:0}
+
+/* bottom: me */
+#me{display:flex;flex-direction:column;align-items:center;gap:8px}
+#controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;min-height:38px;align-items:center}
+#myline{display:flex;gap:8px;align-items:center;font-size:14px;text-shadow:2px 2px 0 var(--night)}
+.btn{font-family:var(--font-cn);font-size:16px;color:var(--ink);background:var(--paper);border:2px solid var(--ink);box-shadow:3px 3px 0 var(--night);padding:5px 14px;cursor:pointer}
+.btn.primary{background:var(--neon)}
+.btn.gold{background:var(--gold)}
+.btn:hover:not(:disabled){transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--night)}
+.btn:active:not(:disabled){transform:translate(2px,2px);box-shadow:1px 1px 0 var(--night)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+#hand{display:flex;justify-content:center;width:100%;padding-top:16px;min-height:calc(var(--ch) + 16px);touch-action:none}
+#hand .card{cursor:pointer}
+#hand .card.sel{transform:translateY(-16px)}
+#hand .card.hint{outline:2px dashed var(--neon);outline-offset:-5px}
+
+#toast{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);font-size:clamp(22px,4vw,34px);color:var(--gold);text-shadow:3px 3px 0 var(--night), -2px -2px 0 var(--night);pointer-events:none;white-space:nowrap;transition:opacity .25s}
+#toast[data-off="1"]{opacity:0}
+
+/* overlays */
+.overlay{position:fixed;inset:0;display:grid;place-items:center;background:rgba(23,15,30,.45);padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+.sheet{background:var(--plum);border:3px solid var(--plum-hi);box-shadow:0 0 0 3px var(--night), 8px 8px 0 var(--night);padding:20px 24px;max-width:420px;width:100%;display:flex;flex-direction:column;gap:12px;align-items:center;text-align:center}
+.sheet h1{font-size:clamp(30px,7vw,44px);font-weight:400;margin:0;color:var(--neon);text-shadow:3px 3px 0 var(--night);text-wrap:balance}
+.sheet h2{font-size:28px;font-weight:400;margin:0;text-wrap:balance}
+.sheet p{margin:0;color:var(--muted);line-height:1.6;font-size:15px}
+.sheet .sub{font-family:var(--font-pixel);font-size:12px;letter-spacing:.08em;color:var(--gold)}
+#resultRows{display:grid;grid-template-columns:auto auto auto;gap:4px 16px;font-size:16px;width:100%;max-width:280px}
+#resultRows .d{font-family:var(--font-pixel);text-align:right;font-variant-numeric:tabular-nums}
+#resultRows .up{color:#9fe0c3}
+#resultRows .down{color:#ff9aa9}
+#loading{position:fixed;inset:0;display:grid;place-items:center;background:var(--night);font-family:var(--font-pixel);color:var(--neon);font-size:14px;letter-spacing:.1em}
+@media (max-width:560px){
+  #scores{font-size:12px}
+  #round{font-size:12px;gap:8px}
+  .tag .name{font-size:14px}
+  .btn{font-size:15px;padding:5px 10px}
+  .card.mini{--cw:24px;margin-left:-11px}
+}
+@media (prefers-reduced-motion: reduce){ .card,.bubble,#toast{transition:none} }
+</style>
+<style>html,body{margin:0}</style>
+</head>
+<body>
+
+
+<canvas id="scene" aria-label="牌桌：两只小猫坐在你对面"></canvas>
+<div id="anchors">
+  <div class="anchor" id="tag1"><div class="tag"><span class="name">煤球</span><span class="meta"><span class="role" hidden></span><span class="count">17</span></span></div></div>
+  <div class="anchor" id="tag2"><div class="tag"><span class="name">小咪</span><span class="meta"><span class="role" hidden></span><span class="count">17</span></span></div></div>
+  <div class="anchor" id="bub1"><div class="bubble" data-off="1"></div></div>
+  <div class="anchor" id="bub2"><div class="bubble" data-off="1"></div></div>
+  <div class="anchor played" id="played0"></div>
+  <div class="anchor played" id="played1"></div>
+  <div class="anchor played" id="played2"></div>
+</div>
+<div id="ui">
+  <div id="hud">
+    <div class="panel" id="scores" aria-label="积分">
+      <span>我</span><span class="v" id="sc0">0</span>
+      <span>煤球</span><span class="v" id="sc1">0</span>
+      <span>小咪</span><span class="v" id="sc2">0</span>
+    </div>
+    <div class="panel" id="round">
+      <span>底分 <span class="num" id="baseNum">–</span></span>
+      <span>倍数 <span class="num" id="multNum">×1</span></span>
+      <div id="bottomCards"><span class="lbl">底牌</span></div>
+    </div>
+  </div>
+  <div id="me">
+    <div id="controls"></div>
+    <div id="myline"><span class="role" id="myRole" hidden></span><span id="myHint"></span></div>
+    <div id="hand" aria-label="我的手牌"></div>
+  </div>
+</div>
+<div id="toast" data-off="1"></div>
+<div class="overlay" id="start" hidden>
+  <div class="sheet">
+    <span class="sub">3 PLAYERS · 54 CARDS</span>
+    <h1>小咪打牌中</h1>
+    <p>你和煤球、小咪三个人斗地主。叫分最高的当地主，拿走三张底牌，一个人对付两个农民。先把手牌出完的一方赢。</p>
+    <p>点牌或在牌上滑动来选牌，然后点「出牌」。不会出就点「提示」。</p>
+    <button class="btn primary" id="startBtn">开局</button>
+  </div>
+</div>
+<div class="overlay" id="result" hidden>
+  <div class="sheet">
+    <span class="sub" id="resultSub"></span>
+    <h2 id="resultTitle"></h2>
+    <p id="resultDetail"></p>
+    <div id="resultRows"></div>
+    <button class="btn primary" id="againBtn">再来一局</button>
+  </div>
+</div>
+<div id="loading">LOADING CATS…</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+
+// ===== Dou Dizhu rules + cat AI =====
+// rank: 3..14 (A), 15 = 2, 16 = small joker, 17 = big joker
+const RANK_LABEL = {11:'J',12:'Q',13:'K',14:'A',15:'2',16:'小王',17:'大王'};
+const rankLabel = r => RANK_LABEL[r] || String(r);
+const SUITS = ['S','H','C','D'];
+const SUIT_CHAR = {S:'♠',H:'♥',C:'♣',D:'♦',J:''};
+
+function makeDeck(){
+  const d=[]; let id=0;
+  for(let r=3;r<=15;r++) for(const s of SUITS) d.push({id:id++, rank:r, suit:s});
+  d.push({id:id++, rank:16, suit:'J'}); d.push({id:id++, rank:17, suit:'J'});
+  return d;
+}
+function shuffle(a, rnd=Math.random){
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1)); [a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
+const sortHand = h => h.sort((a,b)=> b.rank-a.rank || SUITS.indexOf(a.suit)-SUITS.indexOf(b.suit));
+function countRanks(cards){ const m=new Map(); for(const c of cards) m.set(c.rank,(m.get(c.rank)||0)+1); return m; }
+
+function isRun(ranks){ // sorted asc distinct, all <=14
+  if(ranks[ranks.length-1]>14) return false;
+  for(let i=1;i<ranks.length;i++) if(ranks[i]!==ranks[i-1]+1) return false;
+  return true;
+}
+// find highest run of k consecutive ranks (<=14) with count>=3
+function tripleRun(cnt, k){
+  const tri=[...cnt.keys()].filter(r=>cnt.get(r)>=3 && r<=14).sort((a,b)=>a-b);
+  let best=null;
+  for(let i=0;i+k<=tri.length;i++){ const run=tri.slice(i,i+k); if(isRun(run)) best=run; }
+  return best;
+}
+
+// Returns {type, main, n} or null
+function analyze(cards){
+  const n=cards.length; if(!n) return null;
+  const cnt=countRanks(cards);
+  const ranks=[...cnt.keys()].sort((a,b)=>a-b);
+  const vals=ranks.map(r=>cnt.get(r));
+  const only=(c)=>vals.every(v=>v===c);
+  if(n===2 && cnt.has(16) && cnt.has(17)) return {type:'rocket',main:17,n};
+  if(n===1) return {type:'single',main:ranks[0],n};
+  if(ranks.length===1){
+    if(n===2) return {type:'pair',main:ranks[0],n};
+    if(n===3) return {type:'triple',main:ranks[0],n};
+    if(n===4) return {type:'bomb',main:ranks[0],n};
+  }
+  if(n===4 && ranks.length===2 && vals.includes(3)) return {type:'triple1',main:ranks[vals.indexOf(3)],n};
+  if(n===5 && ranks.length===2 && vals.includes(3) && vals.includes(2)) return {type:'triple2',main:ranks[vals.indexOf(3)],n};
+  if(n>=5 && only(1) && isRun(ranks)) return {type:'straight',main:ranks[ranks.length-1],n};
+  if(n>=6 && n%2===0 && only(2) && ranks.length>=3 && isRun(ranks)) return {type:'pairs',main:ranks[ranks.length-1],n};
+  if(n>=6 && n%3===0 && only(3) && ranks.length>=2 && isRun(ranks)) return {type:'plane',main:ranks[ranks.length-1],n};
+  const four=ranks.find(r=>cnt.get(r)===4);
+  if(four!==undefined && n===6) return {type:'four2',main:four,n};
+  if(four!==undefined && n===8){
+    const rest=ranks.filter(r=>r!==four);
+    if(rest.every(r=>cnt.get(r)===2||cnt.get(r)===4)) return {type:'four22',main:four,n};
+  }
+  if(n>=8 && n%4===0){ const k=n/4, run=tripleRun(cnt,k); if(run) return {type:'plane1',main:run[run.length-1],n}; }
+  if(n>=10 && n%5===0){
+    const k=n/5, run=tripleRun(cnt,k);
+    if(run){
+      const rest=new Map(cnt); for(const r of run) rest.set(r,rest.get(r)-3);
+      let pairs=0, ok=true;
+      for(const [r,v] of rest){ if(v%2) {ok=false;break;} if(v && r>=16){ok=false;break;} pairs+=v/2; }
+      if(ok && pairs===k) return {type:'plane2',main:run[run.length-1],n};
+    }
+  }
+  return null;
+}
+function canBeat(a, b){
+  if(!a) return false;
+  if(!b) return true;
+  if(a.type==='rocket') return true;
+  if(b.type==='rocket') return false;
+  if(a.type==='bomb' && b.type!=='bomb') return true;
+  if(a.type!==b.type || a.n!==b.n) return false;
+  return a.main>b.main;
+}
+const TYPE_NAME = {single:'单张',pair:'对子',triple:'三张',triple1:'三带一',triple2:'三带二',straight:'顺子',pairs:'连对',
+  plane:'飞机',plane1:'飞机带翅膀',plane2:'飞机带翅膀',four2:'四带二',four22:'四带两对',bomb:'炸弹',rocket:'王炸'};
+
+// ---------- move generation for AI / hints ----------
+function generateMoves(hand){
+  const cnt=countRanks(hand);
+  const byRank=new Map(); for(const c of hand){ if(!byRank.has(c.rank)) byRank.set(c.rank,[]); byRank.get(c.rank).push(c); }
+  const take=(r,k)=>byRank.get(r).slice(0,k);
+  const ranks=[...cnt.keys()].sort((a,b)=>a-b);
+  const moves=[];
+  const push=(cards)=>{ const info=analyze(cards); if(info) moves.push({cards,info}); };
+  // kicker pickers (exclude main ranks), prefer lone cards, low ranks
+  const kickers=(exclude, k, size)=>{
+    const pool=ranks.filter(r=>!exclude.includes(r) && cnt.get(r)>=size && !(size===2 && r>=16));
+    pool.sort((a,b)=>{
+      const fa=(cnt.get(a)===size?0:1)+(a>=15?2:0), fb=(cnt.get(b)===size?0:1)+(b>=15?2:0);
+      return fa-fb || a-b;
+    });
+    if(pool.length<k) return null;
+    const out=[]; for(const r of pool.slice(0,k)) out.push(...take(r,size));
+    return out;
+  };
+  for(const r of ranks){
+    const c=cnt.get(r);
+    push(take(r,1));
+    if(c>=2) push(take(r,2));
+    if(c>=3){
+      push(take(r,3));
+      const k1=kickers([r],1,1); if(k1) push([...take(r,3),...k1]);
+      const k2=kickers([r],1,2); if(k2) push([...take(r,3),...k2]);
+    }
+    if(c===4) push(take(r,4));
+  }
+  // straights
+  for(let s=3;s<=10;s++) for(let e=s;e<=14;e++){ if(!cnt.get(e)) break; if(e-s+1>=5){ const cs=[]; for(let r=s;r<=e;r++) cs.push(...take(r,1)); push(cs);} }
+  // pair runs
+  for(let s=3;s<=12;s++) for(let e=s;e<=14;e++){ if((cnt.get(e)||0)<2) break; if(e-s+1>=3){ const cs=[]; for(let r=s;r<=e;r++) cs.push(...take(r,2)); push(cs);} }
+  // planes
+  for(let s=3;s<=13;s++) for(let e=s+1;e<=14;e++){
+    if((cnt.get(s)||0)<3) break;
+    if((cnt.get(e)||0)<3) break;
+    const main=[]; const used=[]; for(let r=s;r<=e;r++){ main.push(...take(r,3)); used.push(r); }
+    const k=used.length;
+    push(main);
+    const w1=kickers(used,k,1); if(w1) push([...main,...w1]);
+    const w2=kickers(used,k,2); if(w2) push([...main,...w2]);
+  }
+  if(cnt.has(16)&&cnt.has(17)) push([...take(16,1),...take(17,1)]);
+  return moves;
+}
+
+// cost of a move given hand (lower = better to play)
+function moveCost(move, hand){
+  const cnt=countRanks(hand), used=countRanks(move.cards);
+  let cost=move.info.main - move.cards.length*1.15;
+  for(const [r,u] of used){
+    const have=cnt.get(r);
+    if(u<have) cost += have===4 ? 18 : 4;          // breaking a set
+    if(r>=15 && hand.length>6) cost += 5;            // save 2s and jokers
+  }
+  if(move.info.type==='bomb'||move.info.type==='rocket') cost+=40;
+  return cost;
+}
+
+// AI decision. ctx: {hand, seat, landlord, last:{seat,info,cards}|null, counts:[n,n,n]}
+function aiChoose(ctx){
+  const {hand, seat, landlord, last, counts}=ctx;
+  const all=generateMoves(hand);
+  const finish=all.find(m=>m.cards.length===hand.length && (!last || canBeat(m.info,last.info)));
+  if(finish) return finish;
+  const isTeam=(a,b)=> a===b || (a!==landlord && b!==landlord);
+  const opps=[0,1,2].filter(s=>!isTeam(s,seat));
+  const minOpp=Math.min(...opps.map(s=>counts[s]));
+  const nextSeat=(seat+1)%3, nextIsOpp=!isTeam(nextSeat,seat);
+  const danger=(m)=>{ // stop an opponent who is about to go out
+    if(minOpp===1 && m.info.type==='single') return 25 - (m.info.main/2);
+    if(minOpp===2 && m.info.type==='pair') return 15;
+    return 0;
+  };
+  if(!last){
+    let cands=all.filter(m=>m.info.type!=='bomb'&&m.info.type!=='rocket');
+    if(!cands.length) cands=all;
+    let best=null, bc=Infinity;
+    for(const m of cands){
+      let c=moveCost(m,hand)+danger(m);
+      if(minOpp===1 && m.info.type==='single'){ // only play your top single then
+        const top=Math.max(...hand.map(x=>x.rank));
+        c = m.info.main===top ? c-20 : c;
+      }
+      if(c<bc){bc=c;best=m;}
+    }
+    return best;
+  }
+  const beaters=all.filter(m=>canBeat(m.info,last.info));
+  if(!beaters.length) return null;
+  const teammateLast = isTeam(last.seat,seat);
+  if(teammateLast){
+    // let teammate's play ride unless it is tiny and we can cover cheaply without breaking anything
+    if(!nextIsOpp || counts[last.seat]<=3) return null;
+    const cheap=beaters.filter(m=>m.info.type!=='bomb'&&m.info.type!=='rocket' && m.info.main<=11 && moveCost(m,hand)<=m.info.main-m.cards.length*1.15+0.01);
+    if(last.info.main<=8 && cheap.length && Math.random()<0.5) return cheap.sort((a,b)=>a.info.main-b.info.main)[0];
+    return null;
+  }
+  const normal=beaters.filter(m=>m.info.type!=='bomb'&&m.info.type!=='rocket');
+  if(normal.length){
+    let best=null, bc=Infinity;
+    for(const m of normal){ const c=moveCost(m,hand); if(c<bc){bc=c;best=m;} }
+    // don't burn a 2 / joker on a small single early unless pressured
+    const pressured = counts[last.seat]<=5 || hand.length<=5;
+    if(!pressured && best.info.main>=15 && last.info.main<=10 && hand.length>8 && Math.random()<0.6) return null;
+    return best;
+  }
+  const big=beaters.sort((a,b)=>a.info.main-b.info.main + (a.info.type==='rocket'?100:0)-(b.info.type==='rocket'?100:0));
+  const pressured = counts[last.seat]<=6 || hand.length - big[0].cards.length <= 5;
+  return (pressured || Math.random()<0.25) ? big[0] : null;
+}
+
+function aiBid(hand, current){
+  const cnt=countRanks(hand); let s=0;
+  if(cnt.has(17)) s+=4; if(cnt.has(16)) s+=3;
+  s+=(cnt.get(15)||0)*2; s+=(cnt.get(14)||0)*1;
+  for(const [r,v] of cnt) if(v===4) s+=4;
+  const want = s>=10?3 : s>=7?2 : s>=5?1 : 0;
+  return want>current ? want : 0;
+}
+
+// hint list for the human: all beating moves sorted cheapest first
+function hints(hand, last){
+  const all=generateMoves(hand).filter(m=>!last||canBeat(m.info,last.info));
+  return all.sort((a,b)=>moveCost(a,hand)-moveCost(b,hand));
+}
+
+
+// ================= helpers =================
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const NAMES = ['我','煤球','小咪'];
+let scores = [0,0,0];
+try { const s = JSON.parse(localStorage.getItem('xiaomi-ddz-scores')||'null'); if (Array.isArray(s) && s.length===3) scores = s; } catch(e) {}
+const saveScores = () => { try { localStorage.setItem('xiaomi-ddz-scores', JSON.stringify(scores)); } catch(e) {} };
+
+function cardEl(c, cls=''){
+  const el=document.createElement('div');
+  const red = c.suit==='H'||c.suit==='D'||c.rank===17;
+  el.className=`card ${red?'red':''} ${c.rank>=16?'joker':''} ${cls}`;
+  if(c.rank>=16){
+    el.innerHTML=`<span class="r">JOKER</span><span class="big">${c.rank===17?'大':'小'}</span>`;
+  } else {
+    el.innerHTML=`<span class="r">${rankLabel(c.rank)}</span><span class="s">${SUIT_CHAR[c.suit]}</span><span class="big">${SUIT_CHAR[c.suit]}</span>`;
+  }
+  el.dataset.id=c.id;
+  return el;
+}
+
+// ================= 3D scene =================
+const canvas=$('scene');
+const renderer=new THREE.WebGLRenderer({canvas, antialias:false});
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.setClearColor(0x170f1e);
+const scene=new THREE.Scene();
+scene.fog=new THREE.Fog(0x170f1e, 4.5, 10);
+const camera=new THREE.PerspectiveCamera(55, 1, 0.05, 50);
+const CAM_POS=new THREE.Vector3(0,1.58,1.75), CAM_LOOK=new THREE.Vector3(0,0.98,-0.9);
+const S=0.27; // cat scale
+
+function pixelTex(w,h,draw,repeat=[1,1]){
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const g=c.getContext('2d'); g.imageSmoothingEnabled=false; draw(g,w,h);
+  const t=new THREE.CanvasTexture(c); t.magFilter=THREE.NearestFilter; t.minFilter=THREE.NearestFilter;
+  t.colorSpace=THREE.SRGBColorSpace; t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(...repeat); return t;
+}
+let seed=7; const rnd=()=>{ seed=(seed*16807)%2147483647; return seed/2147483647; };
+const brick=pixelTex(64,64,(g,w,h)=>{
+  g.fillStyle='#24121f'; g.fillRect(0,0,w,h);
+  for(let row=0;row<8;row++) for(let col=-1;col<4;col++){
+    const x=col*16+(row%2?8:0), y=row*8;
+    const l=38+rnd()*16; g.fillStyle=`hsl(${342+rnd()*14},${34+rnd()*14}%,${l*0.62}%)`;
+    g.fillRect(x+1,y+1,14,6);
+    g.fillStyle='rgba(255,255,255,0.06)'; g.fillRect(x+1,y+1,14,1);
+  }
+},[6,2]);
+const planks=pixelTex(64,64,(g,w,h)=>{
+  for(let i=0;i<8;i++){ g.fillStyle=`hsl(22,${30+rnd()*10}%,${14+rnd()*6}%)`; g.fillRect(0,i*8,w,8); g.fillStyle='#0d0806'; g.fillRect(0,i*8,w,1); g.fillRect(Math.floor(rnd()*56),i*8,1,8); }
+},[8,8]);
+const felt=pixelTex(32,32,(g,w,h)=>{
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){ g.fillStyle=`hsl(${160+rnd()*6},38%,${22+rnd()*5}%)`; g.fillRect(x,y,1,1); }
+},[5,5]);
+const cardBack=pixelTex(16,24,(g,w,h)=>{
+  g.fillStyle='#24161f'; g.fillRect(0,0,w,h);
+  g.fillStyle='#f5ecd8'; g.fillRect(1,1,w-2,h-2);
+  g.fillStyle='#8a3a6a'; g.fillRect(2,2,w-4,h-4);
+  g.fillStyle='#ff88c9';
+  for(let y=3;y<h-3;y+=3) for(let x=3+(y%2);x<w-3;x+=3) g.fillRect(x,y,1,1);
+  g.fillStyle='#f5ecd8'; g.fillRect(6,9,4,4); g.fillRect(5,8,1,1); g.fillRect(10,8,1,1); g.fillRect(7,7,2,1);
+});
+
+// room
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(12,12), new THREE.MeshStandardMaterial({map:planks, roughness:0.9}));
+floor.rotation.x=-Math.PI/2; scene.add(floor);
+const wallMat=new THREE.MeshStandardMaterial({map:brick, roughness:1});
+const back=new THREE.Mesh(new THREE.PlaneGeometry(9,3.6), wallMat); back.position.set(0,1.8,-2.7); scene.add(back);
+for(const s of [-1,1]){ const w=new THREE.Mesh(new THREE.PlaneGeometry(9,3.6), wallMat); w.position.set(s*3.2,1.8,0); w.rotation.y=-s*Math.PI/2; scene.add(w); }
+// neon sign
+const signTex=pixelTex(96,32,(g,w,h)=>{ g.clearRect(0,0,w,h); },[1,1]);
+const signMat=new THREE.MeshBasicMaterial({map:signTex, transparent:true, color:0xffffff, fog:false});
+const sign=new THREE.Mesh(new THREE.PlaneGeometry(1.8,0.6), signMat); sign.position.set(0,2.02,-2.68); scene.add(sign);
+async function drawSign(){
+  try{ await document.fonts.load('28px "ZCOOL KuaiLe"','小咪棋牌室'); }catch(e){}
+  const c=signTex.image, g=c.getContext('2d'); g.clearRect(0,0,c.width,c.height);
+  g.font='22px "ZCOOL KuaiLe", "Microsoft YaHei", sans-serif'; g.textAlign='center'; g.textBaseline='middle';
+  g.fillStyle='rgba(255,136,201,0.35)'; g.fillText('小咪棋牌室',48,17); g.fillText('小咪棋牌室',50,15);
+  g.fillStyle='#ffd1ea'; g.fillText('小咪棋牌室',49,16);
+  signTex.needsUpdate=true;
+}
+const signLight=new THREE.PointLight(0xff6fbf, 3, 4.5, 1.6); signLight.position.set(0,2.2,-2.3); scene.add(signLight);
+
+// table
+const TABLE=new THREE.Vector3(0,0.78,-0.42), TR=0.95;
+const top=new THREE.Mesh(new THREE.CylinderGeometry(TR,TR,0.06,12), [new THREE.MeshStandardMaterial({color:0x5a3322, roughness:0.8, flatShading:true}), new THREE.MeshStandardMaterial({map:felt, roughness:1}), new THREE.MeshStandardMaterial({color:0x5a3322})]);
+top.position.copy(TABLE); scene.add(top);
+const rim=new THREE.Mesh(new THREE.TorusGeometry(TR,0.05,4,12), new THREE.MeshStandardMaterial({color:0x6b3d27, roughness:0.7, flatShading:true}));
+rim.rotation.x=Math.PI/2; rim.position.set(TABLE.x,TABLE.y+0.03,TABLE.z); scene.add(rim);
+const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.18,0.78,6), new THREE.MeshStandardMaterial({color:0x3a2117, flatShading:true}));
+leg.position.set(TABLE.x,0.39,TABLE.z); scene.add(leg);
+// lamp
+const shade=new THREE.Mesh(new THREE.ConeGeometry(0.34,0.24,8,1,true), new THREE.MeshStandardMaterial({color:0x2b6b5a, side:THREE.DoubleSide, flatShading:true, emissive:0x112a22}));
+shade.position.set(TABLE.x,2.38,TABLE.z); scene.add(shade);
+const bulb=new THREE.Mesh(new THREE.SphereGeometry(0.07,6,4), new THREE.MeshBasicMaterial({color:0xfff0c8}));
+bulb.position.set(TABLE.x,2.27,TABLE.z); scene.add(bulb);
+const cord=new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,1.4,4), new THREE.MeshBasicMaterial({color:0x111111}));
+cord.position.set(TABLE.x,3.18,TABLE.z); scene.add(cord);
+const lamp=new THREE.PointLight(0xffd6a0, 9, 6, 1.4); lamp.position.set(TABLE.x,2.15,TABLE.z); scene.add(lamp);
+scene.add(new THREE.HemisphereLight(0xb7a1e6, 0x3a2030, 1.1));
+const fill=new THREE.DirectionalLight(0xffe7f4, 1.3); fill.position.set(0.5,2.2,2.5); scene.add(fill);
+const rimL=new THREE.PointLight(0x9a6bff, 4, 5, 1.5); rimL.position.set(-2.4,1.6,-1.6); scene.add(rimL);
+
+// seats around the table: 0 = me (camera side), 1 = right cat, 2 = left cat
+const seatAngle={1:0.95, 2:-0.95};
+const catPos=s=>new THREE.Vector3(TABLE.x+Math.sin(seatAngle[s])*1.15, 0.0, TABLE.z-Math.cos(seatAngle[s])*1.15);
+const ANCH={
+  played:[new THREE.Vector3(0,0.84,0.08), new THREE.Vector3(0.42,0.84,-0.62), new THREE.Vector3(-0.42,0.84,-0.62)],
+};
+for(const s of [1,2]){
+  const p=catPos(s);
+  const stool=new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.19,0.62,8), new THREE.MeshStandardMaterial({color:0x7a3550, roughness:0.85, flatShading:true}));
+  stool.position.set(p.x,0.31,p.z); scene.add(stool);
+}
+
+// ================= cats =================
+const cats={};
+function loadGLB(){
+  return new Promise((resolve,reject)=>{
+    new GLTFLoader().load('lowpoly_cat.glb', resolve, undefined, reject);
+  });
+}
+function makeCat(gltf, seat){
+  const model=SkeletonUtils.clone(gltf.scene);
+  model.scale.setScalar(S);
+  model.traverse(o=>{
+    if(o.isMesh){
+      o.frustumCulled=false;
+      const m=o.material;
+      if(m && m.name==='Cat_Fur'){ m.color.setScalar(2.6); m.roughness=0.75; }
+    }
+  });
+  const g=new THREE.Group(); g.add(model);
+  const p=catPos(seat); g.position.set(p.x,0.62,p.z);
+  scene.add(g);
+  // fan of card backs held in front of the chest
+  const fan=new THREE.Group(); fan.position.set(0,0.31,0.33); fan.rotation.x=-0.35; g.add(fan);
+  const backMat=new THREE.MeshStandardMaterial({map:cardBack, roughness:0.8, side:THREE.DoubleSide});
+  const geo=new THREE.PlaneGeometry(0.085,0.125);
+  const cards=[]; for(let i=0;i<20;i++){ const m=new THREE.Mesh(geo, backMat); fan.add(m); cards.push(m); }
+  const mixer=new THREE.AnimationMixer(model);
+  const acts={}; for(const clip of gltf.animations){ acts[clip.name]=mixer.clipAction(clip); }
+  const idle=acts['Sway']; idle.play(); idle.time=Math.random()*idle.getClip().duration;
+  let current=idle;
+  mixer.addEventListener('finished', ()=>{ idle.reset().play(); current.crossFadeTo(idle,0.18,false); current=idle; });
+  const play=(name)=>{
+    const a=acts[name]; if(!a || current===a) return;
+    a.reset(); a.setLoop(THREE.LoopOnce,1); a.clampWhenFinished=true; a.play();
+    current.crossFadeTo(a,0.15,false); current=a;
+  };
+  const baseYaw=Math.atan2(CAM_POS.x-p.x, CAM_POS.z-p.z)*0.55 + Math.atan2(TABLE.x-p.x, TABLE.z-p.z)*0.45;
+  g.rotation.y=baseYaw;
+  return {seat, group:g, model, mixer, play, fan, cards, baseYaw, yaw:baseYaw, setCount(n){
+    const k=Math.min(n,20);
+    cards.forEach((m,i)=>{ m.visible=i<k; const t=k>1? i/(k-1)-0.5 : 0; m.position.set(t*0.25, -Math.abs(t)*0.04, i*0.002); m.rotation.z=-t*0.9; });
+  }};
+}
+
+// ================= projection of HTML anchors =================
+const tmp=new THREE.Vector3();
+function place(el, world, dy=0){
+  tmp.copy(world).project(camera);
+  const x=(tmp.x*0.5+0.5)*innerWidth, y=(-tmp.y*0.5+0.5)*innerHeight+dy;
+  el.style.transform=`translate(${x}px,${y}px) translate(-50%,-50%)`;
+}
+
+function resize(){
+  const w=innerWidth, h=innerHeight;
+  const pr=Math.max(0.3, Math.min(1, 380/h)) * Math.min(devicePixelRatio||1, 2);
+  renderer.setPixelRatio(pr); renderer.setSize(w,h,false);
+  camera.aspect=w/h;
+  const portrait=w/h<1;
+  camera.fov= portrait? 74 : 55;
+  camera.position.copy(CAM_POS).add(new THREE.Vector3(0, portrait?0.12:0, portrait?0.55:0));
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+let px=0, py=0;
+addEventListener('pointermove', e=>{ px=(e.clientX/innerWidth-0.5); py=(e.clientY/innerHeight-0.5); });
+
+const clock=new THREE.Clock();
+const look=new THREE.Vector3();
+let activeSeat=-1;
+function frame(){
+  const dt=Math.min(clock.getDelta(), 0.05), t=clock.elapsedTime;
+  for(const c of Object.values(cats)){
+    c.mixer.update(dt);
+    let target=c.baseYaw;
+    if(activeSeat===0) target=c.baseYaw+ (c.seat===1? 0.12:-0.12);
+    else if(activeSeat>0 && activeSeat!==c.seat) target=c.baseYaw + (c.seat===1? -0.38 : 0.38);
+    c.yaw+= (target-c.yaw)*Math.min(1, dt*4);
+    c.group.rotation.y=c.yaw;
+  }
+  look.copy(CAM_LOOK).add(new THREE.Vector3(px*0.5, -py*0.25 + Math.sin(t*0.7)*0.01, 0));
+  camera.lookAt(look);
+  renderer.render(scene,camera);
+  if(cats[1]){
+    place($('tag1'), new THREE.Vector3().copy(cats[1].group.position).add(new THREE.Vector3(0,3.15*S,0)), -14);
+    place($('tag2'), new THREE.Vector3().copy(cats[2].group.position).add(new THREE.Vector3(0,3.15*S,0)), -14);
+    place($('bub1'), new THREE.Vector3().copy(cats[1].group.position).add(new THREE.Vector3(-0.1,2.3*S,0)), -70);
+    place($('bub2'), new THREE.Vector3().copy(cats[2].group.position).add(new THREE.Vector3(0.1,2.3*S,0)), -70);
+  }
+  for(let i=0;i<3;i++) place($('played'+i), ANCH.played[i]);
+  requestAnimationFrame(frame);
+}
+
+// ================= game state =================
+const G={hands:[[],[],[]], bottom:[], landlord:-1, base:0, mult:1, plays:[0,0,0], last:null, phase:'idle', busy:false};
+const sel=new Set();
+let humanResolve=null;
+let hintList=[], hintIdx=0;
+
+function toast(text, ms=1400){
+  const t=$('toast'); t.textContent=text; t.dataset.off='0';
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.dataset.off='1', ms);
+}
+function say(seat, text, ms=1600){
+  if(!seat) return;
+  const b=$('bub'+seat).firstElementChild; b.textContent=text; b.dataset.off='0';
+  clearTimeout(b._t); b._t=setTimeout(()=>b.dataset.off='1', ms);
+}
+function react(seat, kind){ if(cats[seat]) cats[seat].play(kind==='happy'?'Nod_Happy':'ShakeHead_Closed'); }
+
+function renderScores(){ for(let i=0;i<3;i++) $('sc'+i).textContent=(scores[i]>0?'+':'')+scores[i]; }
+function renderRound(){
+  $('baseNum').textContent=G.base||'–'; $('multNum').textContent='×'+G.mult;
+  const bc=$('bottomCards'); bc.querySelectorAll('.card').forEach(n=>n.remove());
+  const show=G.landlord>=0;
+  for(const c of G.bottom){ const e=show? cardEl(c,'tiny') : (()=>{const d=document.createElement('div'); d.className='card tiny'; d.style.background='#8a3a6a'; return d;})(); bc.appendChild(e); }
+}
+function renderTags(){
+  for(const s of [1,2]){
+    const tag=$('tag'+s).firstElementChild, n=G.hands[s].length;
+    const cnt=tag.querySelector('.count'); cnt.textContent=n; cnt.classList.toggle('low', n>0 && n<=2);
+    const role=tag.querySelector('.role');
+    role.hidden=G.landlord<0; role.textContent= G.landlord===s?'地主':'农民'; role.className='role '+(G.landlord===s?'lord':'farm');
+    tag.classList.toggle('active', activeSeat===s);
+    if(cats[s]) cats[s].setCount(n);
+  }
+  const mr=$('myRole'); mr.hidden=G.landlord<0; mr.textContent=G.landlord===0?'地主':'农民'; mr.className='role '+(G.landlord===0?'lord':'farm');
+}
+function renderHand(){
+  const h=$('hand'); h.innerHTML='';
+  const hand=G.hands[0], n=hand.length;
+  const W=h.clientWidth||innerWidth-32;
+  const cw=parseFloat(getComputedStyle(h).getPropertyValue('--cw'))||parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cw'))||56;
+  const probe=document.createElement('div'); probe.className='card'; probe.style.visibility='hidden'; h.appendChild(probe); const realW=probe.getBoundingClientRect().width; probe.remove();
+  const cardW=realW||cw;
+  const step=n>1? Math.min(cardW*0.62, (W-cardW-4)/(n-1)) : cardW;
+  hand.forEach((c,i)=>{
+    const e=cardEl(c); if(sel.has(c.id)) e.classList.add('sel');
+    if(i>0) e.style.marginLeft=(step-cardW)+'px';
+    h.appendChild(e);
+  });
+  updateControls();
+}
+function renderPlayed(seat, cards, info){
+  const el=$('played'+seat); el.innerHTML='';
+  if(cards===null) return;
+  if(cards==='pass'){ el.innerHTML='<span class="pass">不要</span>'; return; }
+  for(const c of [...cards].sort((a,b)=>b.rank-a.rank)) el.appendChild(cardEl(c,'mini'));
+  if(info && ['straight','pairs','plane','plane1','plane2','four2','four22','bomb','rocket','triple1','triple2'].includes(info.type)){
+    const t=document.createElement('span'); t.className='type'; t.textContent=TYPE_NAME[info.type]; el.appendChild(t);
+  }
+}
+function clearTable(){ for(let i=0;i<3;i++) renderPlayed(i,null); }
+
+// ----- controls -----
+function setControls(list){
+  const c=$('controls'); c.innerHTML='';
+  for(const b of list){ const e=document.createElement('button'); e.className='btn '+(b.cls||''); e.textContent=b.label; e.id=b.id; e.disabled=!!b.disabled; e.onclick=b.onClick; c.appendChild(e); }
+}
+function selectedCards(){ return G.hands[0].filter(c=>sel.has(c.id)); }
+function updateControls(){
+  if(G.phase!=='myplay') return;
+  const info=analyze(selectedCards());
+  const ok=info && canBeat(info, G.last && G.last.info);
+  const play=$('btnPlay'); if(play) play.disabled=!ok;
+  $('myHint').textContent = sel.size ? (info ? (ok? TYPE_NAME[info.type] : (G.last? '管不上':'')) : '不是有效牌型') : '';
+}
+
+// card selection: tap or drag across cards
+let dragMode=null;
+const handEl=$('hand');
+function cardFromPoint(x,y){ const el=document.elementFromPoint(x,y); return el && el.closest('#hand .card'); }
+handEl.addEventListener('pointerdown', e=>{
+  const el=cardFromPoint(e.clientX,e.clientY); if(!el) return;
+  const id=+el.dataset.id; dragMode= sel.has(id)?'off':'on';
+  toggle(el, dragMode==='on'); e.preventDefault();
+});
+addEventListener('pointermove', e=>{ if(!dragMode) return; const el=cardFromPoint(e.clientX,e.clientY); if(el) toggle(el, dragMode==='on'); });
+addEventListener('pointerup', ()=>{ dragMode=null; });
+function toggle(el, on){
+  const id=+el.dataset.id; if(on) sel.add(id); else sel.delete(id);
+  el.classList.toggle('sel', on); el.classList.remove('hint'); updateControls();
+}
+
+function waitHuman(){ return new Promise(r=>humanResolve=r); }
+function finishHuman(v){ const r=humanResolve; humanResolve=null; setControls([]); $('myHint').textContent=''; r && r(v); }
+
+// ================= flow =================
+async function newGame(){
+  $('result').hidden=true; $('start').hidden=true;
+  G.landlord=-1; G.base=0; G.mult=1; G.plays=[0,0,0]; G.last=null; sel.clear(); activeSeat=-1;
+  clearTable();
+  let deck=shuffle(makeDeck());
+  G.hands=[deck.slice(0,17),deck.slice(17,34),deck.slice(34,51)].map(sortHand); G.bottom=deck.slice(51);
+  renderRound(); renderTags(); renderHand();
+  toast('发牌');
+  await sleep(700);
+  // bidding
+  let cur=0, lord=-1, start=Math.floor(Math.random()*3);
+  for(let k=0;k<3;k++){
+    const s=(start+k)%3; activeSeat=s; renderTags();
+    let bid=0;
+    if(s===0){
+      G.phase='bid';
+      setControls([{label:'不叫',id:'bid0',onClick:()=>finishHuman(0)},
+        ...[1,2,3].map(v=>({label:v+'分',id:'bid'+v,cls:v===3?'gold':'',disabled:v<=cur,onClick:()=>finishHuman(v)}))]);
+      bid=await waitHuman();
+      toast(bid? `我叫 ${bid} 分`:'我不叫', 900);
+    } else {
+      await sleep(800+Math.random()*500);
+      bid=aiBid(G.hands[s],cur);
+      say(s, bid? (bid===3?'3分！我来当地主喵':`叫${bid}分`) : '不叫');
+      if(bid===3) react(s,'happy');
+      await sleep(500);
+    }
+    if(bid>cur){ cur=bid; lord=s; }
+    if(cur===3) break;
+  }
+  if(lord<0){ toast('都不叫，重新发牌'); await sleep(1300); return newGame(); }
+  G.landlord=lord; G.base=cur;
+  G.hands[lord].push(...G.bottom); sortHand(G.hands[lord]);
+  renderRound(); renderTags(); renderHand();
+  if(lord===0) toast('你是地主！'); else { toast(`${NAMES[lord]} 是地主`); react(lord,'happy'); say(lord,'底牌是我的了喵~'); }
+  await sleep(1300);
+  return playLoop();
+}
+
+async function playLoop(){
+  let turn=G.landlord, passes=0;
+  G.last=null;
+  while(true){
+    activeSeat=turn; renderTags();
+    let move;
+    if(turn===0){
+      G.phase='myplay'; hintList=hints(G.hands[0], G.last); hintIdx=0;
+      if(G.last && !hintList.length){ $('myHint').textContent='没有能管上的牌'; }
+      setControls([
+        {label:'不要',id:'btnPass',disabled:!G.last,onClick:()=>{ sel.clear(); finishHuman(null); }},
+        {label:'提示',id:'btnHint',onClick:()=>{
+          if(!hintList.length){ $('myHint').textContent= G.last?'没有能管上的牌':''; return; }
+          const m=hintList[hintIdx%hintList.length]; hintIdx++;
+          sel.clear(); m.cards.forEach(c=>sel.add(c.id)); renderHand();
+        }},
+        {label:'出牌',id:'btnPlay',cls:'primary',disabled:true,onClick:()=>{
+          const cards=selectedCards(), info=analyze(cards);
+          if(info && canBeat(info, G.last&&G.last.info)){ sel.clear(); finishHuman({cards,info}); }
+        }},
+      ]);
+      updateControls();
+      move=await waitHuman();
+      G.phase='wait';
+    } else {
+      await sleep(750+Math.random()*650);
+      move=aiChoose({hand:G.hands[turn], seat:turn, landlord:G.landlord, last:G.last, counts:G.hands.map(h=>h.length)});
+    }
+    if(move){
+      const ids=new Set(move.cards.map(c=>c.id));
+      G.hands[turn]=G.hands[turn].filter(c=>!ids.has(c.id));
+      if(!G.last) clearTable();
+      renderPlayed(turn, move.cards, move.info);
+      G.plays[turn]++; G.last={seat:turn, info:move.info, cards:move.cards}; passes=0;
+      const t=move.info.type;
+      if(t==='bomb'||t==='rocket'){
+        G.mult*=2; renderRound();
+        toast(t==='rocket'?'王炸！×2':'炸弹！×2');
+        if(turn>0){ say(turn, t==='rocket'?'王炸喵！！':'炸弹！'); react(turn,'happy'); }
+        for(const s of [1,2]) if(s!==turn && !sameSide(s,turn)) react(s,'sad');
+      } else if(turn>0 && (move.info.main>=15 || ['plane','plane1','plane2','straight','pairs'].includes(t)) && Math.random()<0.6){
+        react(turn,'happy');
+      }
+      if(turn===0) renderHand();
+      renderTags();
+      const left=G.hands[turn].length;
+      if(turn>0 && (left===1||left===2)) say(turn, `我只剩${left}张啦！`, 1800);
+      if(!left) return endGame(turn);
+    } else {
+      renderPlayed(turn,'pass');
+      if(turn>0){ say(turn,['不要','要不起','过~','喵…不要'][Math.floor(Math.random()*4)], 1100); if(Math.random()<0.35) react(turn,'sad'); }
+      passes++;
+      if(passes===2){
+        await sleep(650);
+        turn=G.last.seat; G.last=null; passes=0; clearTable();
+        continue;
+      }
+    }
+    turn=(turn+1)%3;
+  }
+}
+const sameSide=(a,b)=> a===b || (a!==G.landlord && b!==G.landlord);
+
+async function endGame(winner){
+  activeSeat=-1; renderTags(); G.phase='over';
+  const lordWin = winner===G.landlord;
+  let spring=false;
+  if(lordWin && G.plays.every((p,i)=>i===G.landlord||p===0)) spring=true;
+  if(!lordWin && G.plays[G.landlord]===1) spring=true;
+  if(spring) G.mult*=2;
+  const unit=G.base*G.mult;
+  const delta=[0,0,0];
+  for(let i=0;i<3;i++){
+    if(i===G.landlord) delta[i]= lordWin? 2*unit : -2*unit;
+    else delta[i]= lordWin? -unit : unit;
+  }
+  for(let i=0;i<3;i++) scores[i]+=delta[i];
+  saveScores(); renderScores(); renderRound();
+  for(const s of [1,2]){ react(s, delta[s]>0?'happy':'sad'); say(s, delta[s]>0? '赢啦喵！':'呜…', 2200); }
+  // reveal cats' leftover cards
+  for(const s of [1,2]) if(G.hands[s].length) renderPlayed(s, G.hands[s], null);
+  await sleep(1600);
+  const iWon=delta[0]>0;
+  $('resultSub').textContent = lordWin? 'LANDLORD WINS' : 'FARMERS WIN';
+  $('resultTitle').textContent = iWon? '你赢了！' : '你输了';
+  $('resultDetail').textContent = `地主是${G.landlord===0?'你':NAMES[G.landlord]}。底分 ${G.base} × 倍数 ${G.mult}${spring?'（含春天 ×2）':''}`;
+  const rows=$('resultRows'); rows.innerHTML='';
+  for(let i=0;i<3;i++){
+    rows.insertAdjacentHTML('beforeend', `<span>${NAMES[i]}${i===G.landlord?'（地主）':''}</span><span class="d ${delta[i]>0?'up':'down'}">${delta[i]>0?'+':''}${delta[i]}</span><span class="d">${scores[i]}</span>`);
+  }
+  $('result').hidden=false; $('againBtn').focus();
+}
+
+$('startBtn').onclick=()=>newGame();
+$('againBtn').onclick=()=>newGame();
+addEventListener('resize', ()=>{ if(G.hands[0].length) renderHand(); });
+
+
+async function boot(data){
+  if(data && Array.isArray(data.scores)) scores=data.scores;
+  renderScores(); resize(); drawSign();
+  try{
+    const gltf=await loadGLB();
+    cats[1]=makeCat(gltf,1); cats[2]=makeCat(gltf,2);
+    cats[1].setCount(17); cats[2].setCount(17);
+  }catch(err){ console.error(err); $('loading').textContent='小猫加载失败，请刷新页面'; return; }
+  $('loading').hidden=true; $('start').hidden=false;
+  requestAnimationFrame(frame);
+  window.__G=G; window.__cats=cats;
+}
+boot({});
+</script>
+
+</body>
+</html>
